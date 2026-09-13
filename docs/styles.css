@@ -1,0 +1,315 @@
+
+<div style="font-size: 16px; color: #002060; margin-top: -15px;">
+Fig. 1: Data from: https://www.met.ie, own depiction
+</div>
+.route-slide h2 {
+  display: none;
+}
+
+.route-slide {
+  padding: 0 !important;
+}
+
+.route-composition {
+  position: relative;
+  width: 94%;
+  margin: 0 auto;
+  line-height: 0;
+}
+
+.route-layout {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: none !important;
+  margin: 0;
+}
+
+.route-video {
+  position: absolute;
+
+  /* Neuer Karteninnenraum in animation_map(1).png (2048 × 1448 px) */
+  left: 4.0527%;
+  top: 5.3867%;
+  width: 57.1777%;
+  height: 91.4365%;
+
+  /* Minimale Anpassung an den Kartenrahmen */
+  object-fit: fill;
+
+  display: block;
+  max-width: none !important;
+  max-height: none !important;
+
+  margin: 0;
+  padding: 0;
+  border: none;
+  z-index: 2;
+}
+
+.motivation-slide h2 {
+  margin-bottom: 0.35em;
+  color: #27313a;
+}
+
+.motivation-grid {
+  align-items: center;
+  gap: 1.1rem;
+}
+
+.scenario-panel {
+  font-size: 0.58em;
+  line-height: 1.35;
+}
+
+.scenario-intro {
+  margin-bottom: 0.9em;
+  color: #53606a;
+}
+
+.scenario-card {
+  position: relative;
+  margin-bottom: 0.75em;
+  padding: 0.75em 0.75em 0.75em 2.8em;
+  border-radius: 12px;
+  background: #f3f6f8;
+}
+
+.scenario-card strong {
+  display: block;
+  margin-bottom: 0.2em;
+  color: #27313a;
+  font-size: 1.05em;
+}
+
+.scenario-card span:last-child {
+  color: #59656e;
+}
+
+.scenario-connected {
+  border-left: 6px solid #cf5b5d;
+}
+
+.scenario-disconnected {
+  border-left: 6px solid #4e86b4;
+}
+
+.scenario-label {
+  position: absolute;
+  top: 50%;
+  left: 0.65em;
+  transform: translateY(-50%);
+  font-weight: 700;
+  font-size: 1.15em;
+  color: #27313a;
+}
+
+.motivation-message {
+  margin-top: 1em;
+  padding: 0.85em;
+  border-radius: 12px;
+  background: #27313a;
+  color: white;
+}
+
+.motivation-message strong {
+  display: block;
+  margin-bottom: 0.45em;
+  color: white;
+  font-size: 1.08em;
+}
+
+.pulse-simple {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: 1250px;
+  min-height: 560px;
+  margin: 0 auto;
+}
+
+.pulse-quote {
+  color: #0b2e63;
+  font-size: 0.9em;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.pulse-highlight {
+  color: #c45519;
+  font-weight: 700;
+}
+
+.pulse-citation {
+  margin-top: 1.3em;
+  color: #697687;
+  font-size: 0.38em;
+  text-align: center;
+}
+
+.pulse-project-link {
+  margin: 1.6em auto 0;
+  padding-top: 0.65em;
+  width: 70%;
+  border-top: 2px solid rgba(11, 46, 99, 0.2);
+  color: #0b2e63;
+  font-size: 0.58em;
+  text-align: center;
+}
+
+.workflow-legend {
+  position: absolute;
+  right: 1.5em;
+  bottom: 1.8em;
+  padding: 0.45em 0.7em;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #d5dbe0;
+  border-radius: 8px;
+  color: #263238;
+  font-size: 0.40em;
+  line-height: 1.25;
+}
+
+.workflow-legend p {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  gap: 0.35em 1em;
+  margin: 0 !important;
+}
+
+.legend-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  white-space: nowrap;
+}
+
+.legend-key::before {
+  content: "";
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+.base-key::before {
+  background: #355f7a;
+}
+
+.derived-key::before {
+  background: #287c7e;
+}
+
+.component-key::before {
+  background: #c4742f;
+}
+
+.output-key::before {
+  background: #784b70;
+}
+
+/* Große Karten ohne RevealJS-Begrenzung */
+
+.map-input img,
+.map-output img {
+  display: block;
+  width: 100%;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 auto;
+}
+
+/* Kartenbezeichnungen */
+
+.map-label {
+  margin-top: 6px;
+  color: #002060;
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Pluszeichen zwischen den Karten */
+
+/* Operator zwischen den beiden Karten */
+
+.map-operator {
+  flex: 0 0 120px;
+  align-self: center;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  color: #002060;
+  text-align: center;
+  line-height: 1;
+}
+
+.map-operator div {
+  color: #002060;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.map-operator small {
+  margin-top: 5px;
+  color: #617086;
+  font-size: 15px;
+  font-weight: 400;
+}
+
+
+/* Dezente Informationen unter den Karten */
+
+/* Metadaten exakt unter den beiden Karten */
+
+/* Metadaten exakt unter den Karten */
+
+.source-info-row {
+  display: grid;
+  grid-template-columns: 445px 120px 445px;
+  column-gap: 12px;
+
+  width: max-content;
+  max-width: 100%;
+  margin: 16px auto 0;
+  align-items: start;
+}
+
+/* Linie genau so breit wie die Karte */
+
+.source-info {
+  box-sizing: border-box;
+  width: 445px;
+  padding-top: 8px;
+
+  border-top: 1px solid rgba(0, 32, 96, 0.28);
+  color: #617086;
+}
+
+/* Exakt drei kompakte Zeilen */
+
+.source-info p {
+  margin: 0 !important;
+  color: #617086;
+  font-size: 15px !important;
+  line-height: 1.45 !important;
+}
+
+/* Bezeichnungen links ausrichten */
+
+.source-info strong {
+  display: inline-block;
+  width: 92px;
+
+  color: #002060;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.source-info-spacer {
+  width: 120px;
+}
