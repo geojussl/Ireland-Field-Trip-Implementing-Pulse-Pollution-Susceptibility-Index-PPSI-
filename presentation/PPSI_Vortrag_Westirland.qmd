@@ -162,7 +162,7 @@ Jentsch and White (2019), Yang et al. (2008)
 </div>
 
 ## 
-![](data/derived_data/map/hydroBASINS_map.png){fig-align="center" fig-cap="center" width="80%"}
+![](media/hydroBASINS_map.png){fig-align="center" fig-cap="center" width="80%"}
 <div style="font-size: 16px; color: #68737d; margin-top: -15px;">
 Fig. 2: Map of west ireland Catchments (own depiction).
 </div>
