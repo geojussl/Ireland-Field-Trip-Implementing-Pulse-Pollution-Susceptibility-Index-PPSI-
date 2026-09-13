@@ -1,0 +1,1567 @@
+---
+title: "PPSI v4: Diagnostics, Sensitivity and Hotspot Analysis"
+subtitle: "Western Ireland | 500 m spatial resolution"
+author:
+  - "Justin Lingg-Laham"
+  - "Jonah van den Bos"
+lang: en
+format:
+  html:
+    toc: true
+    embed-resources: true
+    code-fold: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+## Analysis overview
+
+This document contains the post-processing, diagnostic and robustness analysis
+for the **Pulse-Pollution Susceptibility Index (PPSI)** developed for western
+Ireland. The spatial model combines three normalized components:
+
+\[
+\mathrm{PPSI\text{-}P} = \sqrt[3]{S \cdot M \cdot C}
+\]
+
+where \(S\) is agricultural source presence, \(M\) is mobilization potential
+and \(C\) is hydrological connectivity. The geometric mean produces high index
+values only where all three components provide support.
+
+The analysis has five objectives:
+
+1. verify the distribution and internal consistency of the 500-m PPSI raster;
+2. translate the continuous index into relative pixel-priority classes;
+3. calculate mean PPSI scores and rankings for 76 HydroBASINS catchments;
+4. test whether alternative aggregation rules and component weights alter the
+   catchment priorities;
+5. identify catchments that repeatedly occur among the five highest-ranked
+   catchments.
+
+Three spatial products must be distinguished:
+
+- **Priority pixels** are 500-m cells classified from the regional PPSI
+  distribution. The highest class represents the upper 1% of agriculturally
+  relevant pixels.
+- **Candidate output zones** are interpreted spatial clusters of priority
+  pixels. They are useful for communication and follow-up investigation but are
+  not calculated as part of the sensitivity analysis.
+- **Robust hotspot catchments** repeatedly occur among the five highest mean
+  catchment scores across the tested model variants. A *core hotspot* occurs in
+  the Top 5 under all five variants.
+
+The sensitivity analysis is an **internal robustness check**. It tests whether
+the spatial priorities depend strongly on reasonable modelling choices. It is
+not an external validation against measured pollutant concentrations or
+observed pollution events.
+
+## 1. Setup
+
+```{r}
+#| label: setup
+
+required_packages <- c(
+  "terra",
+  "ggplot2",
+  "dplyr",
+  "tidyr",
+  "patchwork",
+  "scales",
+  "sf",
+  "knitr"
+)
+
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(missing_packages) > 0) {
+  install.packages(missing_packages)
+}
+
+library(terra)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)
+library(scales)
+library(sf)
+
+options(
+  scipen = 999,
+  digits = 4
+)
+
+theme_set(
+  theme_minimal(base_size = 12)
+)
+
+project_colour <- "#002060"
+accent_colour <- "#C51B7D"
+secondary_text <- "#617086"
+```
+
+### Input and output paths
+
+The default path follows the repository structure. Set the environment variable
+`PPSI_DATA_DIR` if the exported files are stored elsewhere.
+
+```{r}
+#| label: paths
+
+data_folder <- Sys.getenv(
+  "PPSI_DATA_DIR",
+  unset = file.path(
+    "data",
+    "derived_data",
+    "v4"
+  )
+)
+
+raster_file <- file.path(
+  data_folder,
+  "WestIreland_PPSI_P_v4_story_500m_merged.tif"
+)
+
+csv_file <- file.path(
+  data_folder,
+  "WestIreland_PPSI_P_v4_statistics_500m.csv"
+)
+
+catchment_vector_file <- file.path(
+  data_folder,
+  "WestIreland_PPSI_P_v4_catchments_500m.geojson"
+)
+
+presentation_folder <- file.path(
+  data_folder,
+  "presentation_outputs"
+)
+
+dir.create(
+  presentation_folder,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+if (!file.exists(raster_file)) {
+  stop("Raster file not found: ", raster_file)
+}
+
+if (!file.exists(csv_file)) {
+  stop("Catchment statistics file not found: ", csv_file)
+}
+
+if (file.info(csv_file)$mtime < file.info(raster_file)$mtime) {
+  warning(
+    paste(
+      "The catchment CSV is older than the raster export.",
+      "Confirm that both files represent the same model version."
+    )
+  )
+}
+```
+
+## 2. Raster import
+
+The current Google Earth Engine export contains 22 bands. The first seven bands
+retain the names and order of the former story export, so all downstream object
+and layer names remain unchanged. The import also accepts the legacy seven-band
+export for backwards compatibility.
+
+```{r}
+#| label: raster-import
+
+story_band_names <- c(
+  "source_presence",
+  "rainfall_pulse",
+  "soil_runoff",
+  "mobilization",
+  "connectivity",
+  "ppsi_continuous",
+  "ppsi_quintile"
+)
+
+history_band_names <- c(
+  "cropland_fraction",
+  "cultivated_grass_fraction",
+  "mean_annual_rx1day_mm",
+  "heavy_rain_days_per_year",
+  "rainfall_intensity_0_1",
+  "heavy_rain_frequency_0_1",
+  "soil_texture_usda_class",
+  "elevation_mean_m",
+  "slope_deg",
+  "hand_m",
+  "stream_proxy_500m",
+  "distance_to_stream_m",
+  "slope_factor_0_1",
+  "stream_proximity_0_1",
+  "low_hand_factor_0_1"
+)
+
+all_band_names <- c(
+  story_band_names,
+  history_band_names
+)
+
+combined_raster <- rast(raster_file)
+
+if (nlyr(combined_raster) == length(all_band_names)) {
+
+  names(combined_raster) <- all_band_names
+
+} else if (nlyr(combined_raster) == length(story_band_names)) {
+
+  names(combined_raster) <- story_band_names
+
+  warning(
+    paste(
+      "A legacy seven-band story export was loaded.",
+      "The core analysis remains available, but the additional model-history",
+      "bands are not present."
+    )
+  )
+
+} else {
+
+  stop(
+    "The raster contains ",
+    nlyr(combined_raster),
+    " bands. Expected 7 or 22 bands."
+  )
+}
+
+# Preserve the object and names used by the original analysis.
+ppsi_raster <- combined_raster[[story_band_names]]
+
+print(ppsi_raster)
+
+cat(
+  "\nRaster resolution:",
+  paste(res(ppsi_raster), collapse = " × "),
+  "m\n",
+  "Number of exported bands:",
+  nlyr(combined_raster),
+  "\n"
+)
+```
+
+## 3. Agriculturally relevant pixels
+
+Only complete land pixels with at least 5% agricultural source presence are
+included in the PPSI diagnostics. This reproduces the source gate applied in
+the Google Earth Engine model.
+
+```{r}
+#| label: pixel-data
+
+minimum_source_fraction <- 0.05
+
+analysis_band_names <- c(
+  "source_presence",
+  "rainfall_pulse",
+  "soil_runoff",
+  "mobilization",
+  "connectivity",
+  "ppsi_continuous"
+)
+
+pixel_data_all <- as.data.frame(
+  ppsi_raster[[analysis_band_names]],
+  na.rm = FALSE
+)
+
+pixel_data_all <- pixel_data_all[
+  complete.cases(pixel_data_all),
+]
+
+pixel_data <- pixel_data_all[
+  pixel_data_all$source_presence >= minimum_source_fraction &
+    pixel_data_all$ppsi_continuous >= 0 &
+    pixel_data_all$ppsi_continuous <= 1,
+]
+
+if (nrow(pixel_data) == 0) {
+  stop("No agriculturally relevant PPSI pixels were found.")
+}
+
+ppsi_values <- pixel_data$ppsi_continuous
+
+component_columns <- c(
+  "source_presence",
+  "mobilization",
+  "connectivity"
+)
+
+component_names <- c(
+  source_presence = "Agricultural source",
+  mobilization = "Mobilization",
+  connectivity = "Connectivity"
+)
+
+cat(
+  "Complete land pixels:", nrow(pixel_data_all), "\n",
+  "Agriculturally relevant pixels:", nrow(pixel_data), "\n",
+  "Share retained:",
+  round(100 * nrow(pixel_data) / nrow(pixel_data_all), 1),
+  "%\n"
+)
+```
+
+## 4. Raster diagnostics
+
+### Continuous PPSI distribution
+
+```{r}
+#| label: ppsi-summary
+
+summary_probabilities <- c(
+  0,
+  0.05,
+  0.10,
+  0.25,
+  0.50,
+  0.75,
+  0.80,
+  0.90,
+  0.95,
+  0.99,
+  1
+)
+
+distribution_table <- data.frame(
+  Statistic = c(
+    "Minimum",
+    "5th percentile",
+    "10th percentile",
+    "25th percentile",
+    "Median",
+    "75th percentile",
+    "80th percentile",
+    "90th percentile",
+    "95th percentile",
+    "99th percentile",
+    "Maximum",
+    "Mean",
+    "Standard deviation"
+  ),
+  PPSI = c(
+    as.numeric(
+      quantile(
+        ppsi_values,
+        probs = summary_probabilities,
+        na.rm = TRUE
+      )
+    ),
+    mean(ppsi_values, na.rm = TRUE),
+    sd(ppsi_values, na.rm = TRUE)
+  )
+)
+
+distribution_table$PPSI <- round(
+  distribution_table$PPSI,
+  3
+)
+
+knitr::kable(
+  distribution_table,
+  caption = "Distribution of the continuous PPSI v4."
+)
+```
+
+```{r}
+#| label: fig-ppsi-distribution
+#| fig-cap: "Distribution of the continuous PPSI across agriculturally relevant 500-m cells."
+#| fig-width: 8
+#| fig-height: 4.5
+
+ppsi_distribution_plot <- ggplot(
+  data.frame(PPSI = ppsi_values),
+  aes(x = PPSI)
+) +
+  geom_histogram(
+    binwidth = 0.025,
+    boundary = 0,
+    fill = "#2C7FB8",
+    color = "white",
+    linewidth = 0.2
+  ) +
+  geom_vline(
+    xintercept = median(ppsi_values),
+    color = "#222222",
+    linewidth = 0.9,
+    linetype = "dashed"
+  ) +
+  scale_x_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, 0.1)
+  ) +
+  labs(
+    x = "Continuous PPSI",
+    y = "Number of 500-m cells"
+  )
+
+ppsi_distribution_plot
+```
+
+### Component distributions
+
+```{r}
+#| label: component-summary
+
+component_summary <- do.call(
+  rbind,
+  lapply(
+    component_columns,
+    function(component) {
+
+      component_values <- pixel_data[[component]]
+
+      data.frame(
+        Component = unname(component_names[component]),
+        Mean = mean(component_values, na.rm = TRUE),
+        Median = median(component_values, na.rm = TRUE),
+        P10 = quantile(component_values, 0.10, na.rm = TRUE),
+        P90 = quantile(component_values, 0.90, na.rm = TRUE)
+      )
+    }
+  )
+)
+
+component_summary[c("Mean", "Median", "P10", "P90")] <- round(
+  component_summary[c("Mean", "Median", "P10", "P90")],
+  3
+)
+
+knitr::kable(
+  component_summary,
+  caption = "Distribution of the three normalized PPSI components."
+)
+```
+
+```{r}
+#| label: fig-component-distributions
+#| fig-cap: "Distributions of source presence, mobilization and hydrological connectivity."
+#| fig-width: 9
+#| fig-height: 4.5
+
+component_long <- stack(
+  pixel_data[component_columns]
+)
+
+names(component_long) <- c(
+  "Value",
+  "Component"
+)
+
+component_long$Component <- factor(
+  component_long$Component,
+  levels = component_columns,
+  labels = unname(component_names)
+)
+
+component_distribution_plot <- ggplot(
+  component_long,
+  aes(
+    x = Value,
+    fill = Component
+  )
+) +
+  geom_histogram(
+    binwidth = 0.025,
+    boundary = 0,
+    color = "white",
+    linewidth = 0.15
+  ) +
+  facet_wrap(
+    ~ Component,
+    nrow = 1
+  ) +
+  scale_x_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, 0.2)
+  ) +
+  scale_fill_manual(
+    values = c(
+      "#D95F02",
+      "#7570B3",
+      "#1B9E77"
+    ),
+    guide = "none"
+  ) +
+  labs(
+    x = "Normalized component value",
+    y = "Number of cells"
+  )
+
+component_distribution_plot
+```
+
+### Component support for high PPSI values
+
+The following diagnostic tests whether cells in the upper regional PPSI fifth
+receive support from all three components rather than from only one dominant
+component.
+
+```{r}
+#| label: high-value-support
+
+upper_fifth_threshold <- as.numeric(
+  quantile(
+    ppsi_values,
+    0.80,
+    na.rm = TRUE
+  )
+)
+
+high_pixels <- pixel_data$ppsi_continuous >= upper_fifth_threshold
+
+component_matrix <- as.matrix(
+  pixel_data[component_columns]
+)
+
+minimum_component <- apply(
+  component_matrix,
+  1,
+  min,
+  na.rm = TRUE
+)
+
+high_support_table <- data.frame(
+  Statistic = c(
+    "Threshold of the upper PPSI fifth",
+    "Median source value",
+    "Median mobilization value",
+    "Median connectivity value",
+    "Median of the weakest component",
+    "High-PPSI cells with any component below 0.30 (%)"
+  ),
+  Value = c(
+    upper_fifth_threshold,
+    median(pixel_data$source_presence[high_pixels], na.rm = TRUE),
+    median(pixel_data$mobilization[high_pixels], na.rm = TRUE),
+    median(pixel_data$connectivity[high_pixels], na.rm = TRUE),
+    median(minimum_component[high_pixels], na.rm = TRUE),
+    100 * mean(minimum_component[high_pixels] < 0.30, na.rm = TRUE)
+  )
+)
+
+high_support_table$Value <- round(
+  high_support_table$Value,
+  3
+)
+
+knitr::kable(
+  high_support_table,
+  caption = "Component support within the upper regional PPSI fifth."
+)
+```
+
+## 5. Relative pixel-priority classes
+
+The continuous PPSI is converted into relative regional priority classes using
+thresholds calculated only from agriculturally relevant pixels. These classes
+support visualization and spatial screening; they are not absolute pollution
+risk classes.
+
+```{r}
+#| label: priority-raster
+
+priority_breaks <- as.numeric(
+  quantile(
+    ppsi_values,
+    probs = c(
+      0.80,
+      0.90,
+      0.95,
+      0.99
+    ),
+    na.rm = TRUE
+  )
+)
+
+names(priority_breaks) <- c(
+  "p80",
+  "p90",
+  "p95",
+  "p99"
+)
+
+continuous_raster <- ppsi_raster[["ppsi_continuous"]]
+source_raster <- ppsi_raster[["source_presence"]]
+
+# Class 0: less than 5% agricultural source presence
+# Class 1: lower 80% of relevant pixels
+# Class 2: upper 20%
+# Class 3: upper 10%
+# Class 4: upper 5%
+# Class 5: upper 1%
+priority_raster <- ifel(
+  is.na(continuous_raster) | is.na(source_raster),
+  NA,
+  ifel(
+    source_raster < minimum_source_fraction,
+    0,
+    ifel(
+      continuous_raster < priority_breaks["p80"],
+      1,
+      ifel(
+        continuous_raster < priority_breaks["p90"],
+        2,
+        ifel(
+          continuous_raster < priority_breaks["p95"],
+          3,
+          ifel(
+            continuous_raster < priority_breaks["p99"],
+            4,
+            5
+          )
+        )
+      )
+    )
+  )
+)
+
+names(priority_raster) <- "PPSI_relative_priority"
+
+priority_output <- file.path(
+  data_folder,
+  "WestIreland_PPSI_P_v4_priority_percentiles_500m_new.tif"
+)
+
+writeRaster(
+  priority_raster,
+  filename = priority_output,
+  overwrite = TRUE,
+  datatype = "INT1U",
+  NAflag = 255,
+  gdal = c(
+    "COMPRESS=DEFLATE",
+    "TILED=YES"
+  )
+)
+
+priority_frequency <- freq(priority_raster)
+
+print(priority_breaks)
+print(priority_frequency)
+
+cat("Priority raster saved to:\n", priority_output, "\n")
+```
+
+## 6. Catchment sensitivity analysis
+
+For each model variant, the mean PPSI value of every catchment is ranked from
+highest to lowest. The base-model ranking is compared with four alternatives:
+
+- an additive arithmetic model;
+- a source-weighted geometric model;
+- a mobilization-weighted geometric model;
+- a connectivity-weighted geometric model.
+
+Spearman's rank correlation evaluates the complete ordering of all catchments.
+Top-5 overlap evaluates whether the highest-priority catchments remain selected.
+
+### Catchment data and model definitions
+
+```{r}
+#| label: catchment-import
+
+catchments <- read.csv(
+  csv_file,
+  stringsAsFactors = FALSE,
+  check.names = FALSE,
+  colClasses = "character"
+)
+
+catchments$HYBAS_ID <- as.character(
+  catchments$HYBAS_ID
+)
+
+scenario_columns <- c(
+  Base = "PPSI_P_base_geometric",
+  Additiv = "PPSI_P_additive_sensitivity",
+  Quelle = "PPSI_P_source_heavy",
+  Mobilisierung = "PPSI_P_mobilization_heavy",
+  Konnektivitaet = "PPSI_P_connectivity_heavy"
+)
+
+missing_columns <- setdiff(
+  unname(scenario_columns),
+  names(catchments)
+)
+
+if (length(missing_columns) > 0) {
+  stop(
+    "Missing columns in the catchment CSV: ",
+    paste(missing_columns, collapse = ", ")
+  )
+}
+
+catchments[unname(scenario_columns)] <- lapply(
+  catchments[unname(scenario_columns)],
+  as.numeric
+)
+
+if ("SUB_AREA" %in% names(catchments)) {
+  catchments$SUB_AREA <- as.numeric(catchments$SUB_AREA)
+}
+
+model_variants <- data.frame(
+  Modellvariante = names(scenario_columns),
+  Model = c(
+    "Base model (our PPSI)",
+    "Additive model",
+    "Source weighted",
+    "Mobilization weighted",
+    "Connectivity weighted"
+  ),
+  Source = c(33, 33, 50, 25, 25),
+  Mobilization = c(33, 33, 25, 50, 25),
+  Connectivity = c(33, 33, 25, 25, 50),
+  Combination = c(
+    "Geometric mean",
+    "Arithmetic mean",
+    "Weighted geometric mean",
+    "Weighted geometric mean",
+    "Weighted geometric mean"
+  ),
+  Formula = c(
+    "(S × M × C)^(1/3)",
+    "(S + M + C) / 3",
+    "S^0.50 × M^0.25 × C^0.25",
+    "S^0.25 × M^0.50 × C^0.25",
+    "S^0.25 × M^0.25 × C^0.50"
+  ),
+  stringsAsFactors = FALSE
+)
+
+knitr::kable(
+  model_variants[
+    c(
+      "Model",
+      "Combination",
+      "Formula"
+    )
+  ],
+  caption = "Model variants used in the sensitivity analysis."
+)
+
+cat("Catchments imported:", nrow(catchments), "\n")
+```
+
+### Rank stability and Top-5 overlap
+
+```{r}
+#| label: sensitivity-results
+
+rank_columns <- paste0(
+  "rank_",
+  names(scenario_columns)
+)
+
+for (i in seq_along(scenario_columns)) {
+
+  score_column <- unname(scenario_columns[i])
+  rank_column <- rank_columns[i]
+
+  catchments[[rank_column]] <- rank(
+    -catchments[[score_column]],
+    ties.method = "min",
+    na.last = "keep"
+  )
+}
+
+top5_list <- lapply(
+  scenario_columns,
+  function(score_column) {
+
+    valid_order <- order(
+      catchments[[score_column]],
+      decreasing = TRUE,
+      na.last = NA
+    )
+
+    catchments$HYBAS_ID[
+      head(valid_order, 5)
+    ]
+  }
+)
+
+base_top5 <- top5_list[["Base"]]
+
+comparison_rows <- lapply(
+  names(scenario_columns)[-1],
+  function(variant_name) {
+
+    score_column <- unname(
+      scenario_columns[variant_name]
+    )
+
+    rank_test <- suppressWarnings(
+      cor.test(
+        catchments[[scenario_columns["Base"]]],
+        catchments[[score_column]],
+        method = "spearman",
+        exact = FALSE
+      )
+    )
+
+    data.frame(
+      Modellvariante = variant_name,
+      Gemeinsame_Top5 = length(
+        intersect(
+          base_top5,
+          top5_list[[variant_name]]
+        )
+      ),
+      Spearman_Rho = unname(rank_test$estimate),
+      P_Wert = rank_test$p.value
+    )
+  }
+)
+
+comparison_base <- do.call(
+  rbind,
+  comparison_rows
+)
+
+comparison_display <- comparison_base
+comparison_display$Spearman_Rho <- round(
+  comparison_display$Spearman_Rho,
+  3
+)
+comparison_display$P_Wert <- format.pval(
+  comparison_display$P_Wert,
+  digits = 3,
+  eps = 0.001
+)
+
+knitr::kable(
+  comparison_display,
+  col.names = c(
+    "Model variant",
+    "Top-5 overlap",
+    "Spearman rho",
+    "p-value"
+  ),
+  caption = paste(
+    "Sensitivity of the catchment ranking relative to the",
+    "equal-weighted geometric base model."
+  )
+)
+```
+
+The p-value evaluates the null hypothesis of no monotonic association between
+the two catchment rankings. It does not measure effect size and does not provide
+external validation. Rank stability is primarily interpreted from the very high
+Spearman coefficients together with the Top-5 overlap.
+
+## 7. Robust hotspot catchments
+
+The robustness score counts how often each catchment appears among the five
+highest-ranked catchments across the base model and four alternatives.
+
+```{r}
+#| label: robust-hotspots
+
+rank_matrix <- as.matrix(
+  catchments[rank_columns]
+)
+
+catchments$Mittlerer_Rang <- rowMeans(
+  rank_matrix,
+  na.rm = TRUE
+)
+
+catchments$Rang_SD <- apply(
+  rank_matrix,
+  1,
+  sd,
+  na.rm = TRUE
+)
+
+catchments$Bester_Rang <- apply(
+  rank_matrix,
+  1,
+  min,
+  na.rm = TRUE
+)
+
+catchments$Schlechtester_Rang <- apply(
+  rank_matrix,
+  1,
+  max,
+  na.rm = TRUE
+)
+
+catchments$Top5_Haeufigkeit <- rowSums(
+  rank_matrix <= 5,
+  na.rm = TRUE
+)
+
+robustness_order <- order(
+  -catchments$Top5_Haeufigkeit,
+  catchments$Mittlerer_Rang,
+  catchments$Rang_SD
+)
+
+output_columns <- c(
+  "HYBAS_ID",
+  "Mittlerer_Rang",
+  "Rang_SD",
+  "Bester_Rang",
+  "Schlechtester_Rang",
+  "Top5_Haeufigkeit"
+)
+
+if ("SUB_AREA" %in% names(catchments)) {
+  output_columns <- append(
+    output_columns,
+    "SUB_AREA",
+    after = 1
+  )
+}
+
+robust_hotspots <- catchments[
+  robustness_order,
+  output_columns
+]
+
+robust_hotspots$Mittlerer_Rang <- round(
+  robust_hotspots$Mittlerer_Rang,
+  1
+)
+
+robust_hotspots$Rang_SD <- round(
+  robust_hotspots$Rang_SD,
+  1
+)
+
+robust_hotspots$Robustness_Class <- ifelse(
+  robust_hotspots$Top5_Haeufigkeit == 5,
+  "Core hotspot: 5/5",
+  ifelse(
+    robust_hotspots$Top5_Haeufigkeit == 4,
+    "Stable hotspot: 4/5",
+    ifelse(
+      robust_hotspots$Top5_Haeufigkeit >= 1,
+      "Scenario-sensitive candidate",
+      "Not selected"
+    )
+  )
+)
+
+hotspot_candidates <- robust_hotspots[
+  robust_hotspots$Top5_Haeufigkeit >= 1,
+]
+
+hotspot_candidates <- hotspot_candidates[
+  order(
+    -hotspot_candidates$Top5_Haeufigkeit,
+    hotspot_candidates$Mittlerer_Rang,
+    hotspot_candidates$Rang_SD
+  ),
+]
+
+hotspot_candidates$Map_Label <- paste0(
+  "H",
+  seq_len(nrow(hotspot_candidates))
+)
+
+number_catchments <- nrow(robust_hotspots)
+number_in_any_top5 <- sum(robust_hotspots$Top5_Haeufigkeit >= 1)
+number_in_four_top5 <- sum(robust_hotspots$Top5_Haeufigkeit >= 4)
+number_in_all_top5 <- sum(robust_hotspots$Top5_Haeufigkeit == 5)
+
+knitr::kable(
+  head(robust_hotspots, 10),
+  caption = "The ten most robust catchment priorities."
+)
+
+cat(
+  "Catchments in at least one Top 5:", number_in_any_top5, "\n",
+  "Catchments in at least four Top 5 lists:", number_in_four_top5, "\n",
+  "Core hotspots present in all five Top 5 lists:", number_in_all_top5, "\n"
+)
+```
+
+## 8. Presentation figures
+
+Only two figures are retained for presentation and repository use: a compact
+sensitivity figure and a hotspot-frequency figure. All values are calculated
+from the imported catchment results rather than entered manually.
+
+```{r}
+#| label: presentation-theme
+
+presentation_theme <- theme_minimal(
+  base_size = 14,
+  base_family = "sans"
+) +
+  theme(
+    plot.title = element_text(
+      color = project_colour,
+      face = "bold",
+      size = 18
+    ),
+    plot.subtitle = element_text(
+      color = secondary_text,
+      size = 12
+    ),
+    plot.caption = element_text(
+      color = secondary_text,
+      size = 9,
+      hjust = 0
+    ),
+    axis.title = element_text(
+      color = project_colour,
+      face = "bold"
+    ),
+    axis.text = element_text(
+      color = "#26364A"
+    ),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    legend.position = "bottom",
+    plot.margin = margin(12, 18, 12, 12)
+  )
+```
+
+### Compact sensitivity figure
+
+```{r}
+#| label: fig-sensitivity-compact
+#| fig-cap: "Tested model variants and their effects on catchment rankings."
+#| fig-width: 14
+#| fig-height: 6.3
+
+model_order <- rev(model_variants$Model)
+
+model_variants$Model <- factor(
+  model_variants$Model,
+  levels = model_order
+)
+
+weight_data <- model_variants |>
+  pivot_longer(
+    cols = c(
+      Source,
+      Mobilization,
+      Connectivity
+    ),
+    names_to = "Component",
+    values_to = "Weight"
+  ) |>
+  mutate(
+    Component_x = match(
+      Component,
+      c(
+        "Source",
+        "Mobilization",
+        "Connectivity"
+      )
+    )
+  )
+
+weights_plot <- ggplot(
+  weight_data,
+  aes(
+    x = Component_x,
+    y = Model
+  )
+) +
+  geom_tile(
+    aes(fill = Weight),
+    width = 0.86,
+    height = 0.68,
+    color = "white",
+    linewidth = 1.2
+  ) +
+  geom_text(
+    aes(
+      label = paste0(round(Weight), "%"),
+      color = Weight >= 45
+    ),
+    size = 4.7,
+    fontface = "bold"
+  ) +
+  geom_text(
+    data = model_variants,
+    aes(
+      x = 4.05,
+      y = Model,
+      label = Combination
+    ),
+    inherit.aes = FALSE,
+    hjust = 0,
+    color = secondary_text,
+    size = 3.4
+  ) +
+  scale_fill_gradientn(
+    colors = c(
+      "#E8EEF7",
+      "#B8B2D2",
+      accent_colour
+    ),
+    values = scales::rescale(c(25, 33, 50)),
+    limits = c(25, 50)
+  ) +
+  scale_color_manual(
+    values = c(
+      "FALSE" = project_colour,
+      "TRUE" = "white"
+    )
+  ) +
+  scale_x_continuous(
+    breaks = 1:3,
+    labels = c(
+      "Source presence",
+      "Mobilization",
+      "Connectivity"
+    ),
+    limits = c(0.5, 5.25)
+  ) +
+  labs(
+    title = "[A] Model variants",
+    subtitle = "Component weights and aggregation method",
+    x = NULL,
+    y = NULL
+  ) +
+  presentation_theme +
+  theme(
+    axis.text.x = element_text(
+      color = project_colour,
+      face = "bold",
+      size = 10
+    ),
+    axis.text.y = element_text(
+      color = project_colour,
+      face = "bold",
+      size = 10
+    ),
+    panel.grid = element_blank(),
+    legend.position = "none"
+  )
+
+ranking_plot_data <- data.frame(
+  Modellvariante = c(
+    "Base",
+    comparison_base$Modellvariante
+  ),
+  Spearman_Rho = c(
+    1,
+    comparison_base$Spearman_Rho
+  ),
+  Gemeinsame_Top5 = c(
+    NA,
+    comparison_base$Gemeinsame_Top5
+  ),
+  P_Wert = c(
+    NA,
+    comparison_base$P_Wert
+  )
+)
+
+ranking_plot_data <- merge(
+  ranking_plot_data,
+  model_variants[c("Modellvariante", "Model")],
+  by = "Modellvariante",
+  all.x = TRUE,
+  sort = FALSE
+)
+
+ranking_plot_data$Model <- factor(
+  ranking_plot_data$Model,
+  levels = model_order
+)
+
+ranking_plot_data$Result_label <- ifelse(
+  ranking_plot_data$Modellvariante == "Base",
+  "Reference",
+  sprintf(
+    "ρ = %.3f     Top 5 = %d/5",
+    ranking_plot_data$Spearman_Rho,
+    ranking_plot_data$Gemeinsame_Top5
+  )
+)
+
+ranking_plot <- ggplot(
+  ranking_plot_data,
+  aes(
+    y = Model,
+    x = Spearman_Rho
+  )
+) +
+  geom_vline(
+    xintercept = 1,
+    color = project_colour,
+    linewidth = 0.8,
+    linetype = "dashed"
+  ) +
+  geom_segment(
+    aes(
+      x = 0.978,
+      xend = Spearman_Rho,
+      yend = Model
+    ),
+    color = "#CED6E1",
+    linewidth = 2
+  ) +
+  geom_point(
+    aes(
+      color = Modellvariante == "Base"
+    ),
+    size = 4.8
+  ) +
+  geom_text(
+    aes(
+      x = 1.002,
+      label = Result_label
+    ),
+    hjust = 0,
+    color = "#24344A",
+    size = 3.7
+  ) +
+  scale_color_manual(
+    values = c(
+      "FALSE" = accent_colour,
+      "TRUE" = "#8E9AA9"
+    )
+  ) +
+  scale_x_continuous(
+    breaks = c(0.98, 0.99, 1.00),
+    limits = c(0.977, 1.025)
+  ) +
+  labs(
+    title = "[B] Effect on catchment priorities",
+    subtitle = "Comparison with the base-model ranking",
+    x = "Spearman rank correlation",
+    y = NULL
+  ) +
+  presentation_theme +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.x = element_line(color = "#E1E6ED"),
+    legend.position = "none"
+  )
+
+all_significant <- all(
+  comparison_base$P_Wert < 0.001,
+  na.rm = TRUE
+)
+
+sensitivity_figure <- weights_plot +
+  ranking_plot +
+  plot_layout(widths = c(1.25, 1)) +
+  plot_annotation(
+    title = "Catchment priorities remain stable across model variants",
+    subtitle = paste0(
+      "Mean PPSI values for ",
+      nrow(catchments),
+      " catchments; ",
+      ifelse(
+        all_significant,
+        "all alternative rank correlations p < 0.001.",
+        "p-values are reported in the sensitivity table."
+      )
+    ),
+    caption = paste(
+      "High rank correlation and Top-5 overlap indicate internal robustness,",
+      "not validation against observed pollution data."
+    ),
+    theme = theme(
+      plot.title = element_text(
+        color = project_colour,
+        face = "bold",
+        size = 20
+      ),
+      plot.subtitle = element_text(
+        color = secondary_text,
+        size = 12
+      ),
+      plot.caption = element_text(
+        color = secondary_text,
+        size = 9,
+        hjust = 0
+      ),
+      plot.background = element_rect(
+        fill = "white",
+        color = NA
+      )
+    )
+  )
+
+print(sensitivity_figure)
+
+ggsave(
+  filename = file.path(
+    presentation_folder,
+    "06_sensitivity_analysis_compact.png"
+  ),
+  plot = sensitivity_figure,
+  width = 14,
+  height = 6.3,
+  units = "in",
+  dpi = 400,
+  bg = "white"
+)
+```
+
+### Hotspot robustness figure
+
+```{r}
+#| label: fig-hotspot-robustness
+#| fig-cap: "Frequency with which candidate catchments occur among the five highest-ranked catchments."
+#| fig-width: 10
+#| fig-height: 5.5
+
+hotspot_plot_data <- hotspot_candidates
+
+hotspot_plot_data$Map_Label <- factor(
+  hotspot_plot_data$Map_Label,
+  levels = rev(hotspot_plot_data$Map_Label)
+)
+
+robustness_colors <- c(
+  "Core hotspot: 5/5" = accent_colour,
+  "Stable hotspot: 4/5" = "#F28E2B",
+  "Scenario-sensitive candidate" = "#D9B44A"
+)
+
+hotspot_frequency_plot <- ggplot(
+  hotspot_plot_data,
+  aes(
+    x = Top5_Haeufigkeit,
+    y = Map_Label,
+    fill = Robustness_Class
+  )
+) +
+  geom_col(width = 0.62) +
+  geom_text(
+    aes(
+      label = paste0(Top5_Haeufigkeit, "/5")
+    ),
+    hjust = -0.18,
+    color = "#26364A",
+    fontface = "bold",
+    size = 4.5
+  ) +
+  scale_fill_manual(values = robustness_colors) +
+  scale_x_continuous(
+    limits = c(0, 5.75),
+    breaks = 0:5,
+    expand = c(0, 0)
+  ) +
+  labs(
+    title = paste0(
+      number_in_all_top5,
+      " catchments remain in the Top 5 in every model"
+    ),
+    subtitle = paste0(
+      number_in_any_top5,
+      " of ",
+      number_catchments,
+      " catchments appear in at least one Top-5 list."
+    ),
+    x = "Number of model variants with a Top-5 rank",
+    y = NULL,
+    fill = NULL,
+    caption = paste(
+      "Core hotspot is a project-specific robustness definition,",
+      "not an externally validated pollution class."
+    )
+  ) +
+  presentation_theme +
+  theme(
+    axis.text.y = element_text(
+      face = "bold",
+      color = project_colour
+    )
+  )
+
+hotspot_frequency_plot
+
+ggsave(
+  filename = file.path(
+    presentation_folder,
+    "03_hotspot_robustness.png"
+  ),
+  plot = hotspot_frequency_plot,
+  width = 10,
+  height = 5.5,
+  units = "in",
+  dpi = 320,
+  bg = "white"
+)
+```
+
+## 9. Optional spatial hotspot export
+
+If the HydroBASINS catchment polygons are available, the robustness results are
+joined by `HYBAS_ID` and exported as a GeoPackage for cartographic styling in
+QGIS. No interactive file selection is used, which keeps the workflow
+reproducible.
+
+```{r}
+#| label: hotspot-spatial-export
+
+if (file.exists(catchment_vector_file)) {
+
+  catchment_polygons <- st_read(
+    catchment_vector_file,
+    quiet = TRUE
+  )
+
+  catchment_polygons$HYBAS_ID <- as.character(
+    catchment_polygons$HYBAS_ID
+  )
+
+  catchments_robust <- catchment_polygons |>
+    left_join(
+      robust_hotspots,
+      by = "HYBAS_ID"
+    ) |>
+    mutate(
+      Top5_Haeufigkeit = coalesce(
+        Top5_Haeufigkeit,
+        0
+      ),
+      Robustness_Class = coalesce(
+        Robustness_Class,
+        "Not selected"
+      )
+    )
+
+  hotspot_output <- file.path(
+    presentation_folder,
+    "WestIreland_PPSI_P_v4_hotspot_robustness.gpkg"
+  )
+
+  st_write(
+    catchments_robust,
+    hotspot_output,
+    layer = "catchment_robustness",
+    delete_dsn = TRUE,
+    quiet = TRUE
+  )
+
+  cat("QGIS hotspot layer saved to:\n", hotspot_output, "\n")
+
+} else {
+
+  message(
+    paste(
+      "Catchment polygons were not found.",
+      "The tabular hotspot analysis was completed, but the optional",
+      "GeoPackage was not created."
+    )
+  )
+}
+```
+
+## 10. Export summary tables
+
+```{r}
+#| label: export-tables
+
+write.csv(
+  distribution_table,
+  file.path(
+    data_folder,
+    "PPSI_v4_distribution_summary.csv"
+  ),
+  row.names = FALSE
+)
+
+write.csv(
+  component_summary,
+  file.path(
+    data_folder,
+    "PPSI_v4_component_summary.csv"
+  ),
+  row.names = FALSE
+)
+
+write.csv(
+  high_support_table,
+  file.path(
+    data_folder,
+    "PPSI_v4_high_value_support.csv"
+  ),
+  row.names = FALSE
+)
+
+write.csv(
+  comparison_base,
+  file.path(
+    data_folder,
+    "PPSI_v4_sensitivity_summary.csv"
+  ),
+  row.names = FALSE
+)
+
+write.csv(
+  robust_hotspots,
+  file.path(
+    data_folder,
+    "PPSI_v4_robust_hotspots.csv"
+  ),
+  row.names = FALSE
+)
+
+presentation_key_numbers <- data.frame(
+  Metric = c(
+    "Catchments analysed",
+    "Catchments in at least one Top-5 list",
+    "Catchments in at least four Top-5 lists",
+    "Catchments in all five Top-5 lists",
+    "Minimum Spearman rank correlation",
+    "Maximum Spearman rank correlation"
+  ),
+  Value = c(
+    number_catchments,
+    number_in_any_top5,
+    number_in_four_top5,
+    number_in_all_top5,
+    min(comparison_base$Spearman_Rho, na.rm = TRUE),
+    max(comparison_base$Spearman_Rho, na.rm = TRUE)
+  )
+)
+
+write.csv(
+  presentation_key_numbers,
+  file.path(
+    presentation_folder,
+    "PPSI_v4_presentation_key_numbers.csv"
+  ),
+  row.names = FALSE
+)
+
+knitr::kable(
+  presentation_key_numbers,
+  caption = "Key results exported for the presentation and repository."
+)
+```
+
+## Interpretation
+
+High Spearman rank correlations indicate that the overall ordering of the
+catchments changes little across the alternative formulations. Top-5 overlap
+adds a decision-oriented check by showing whether the catchments selected as
+the highest priorities remain the same. Catchments that occur in the Top 5
+under all five formulations are therefore robust to the tested assumptions.
+
+This stability supports the use of the PPSI as a **relative spatial screening
+tool**. It does not prove that the index predicts measured pollution correctly.
+That claim would require independent water-quality or event-observation data.
+
