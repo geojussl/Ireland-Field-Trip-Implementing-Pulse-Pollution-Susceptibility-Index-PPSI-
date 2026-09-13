@@ -1,0 +1,1107 @@
+---
+title: "When heavy rain hits farmland"
+subtitle: "Mapping susceptibility to agricultural pollution pulses in western Ireland"
+author: "Jonah van den Bos & Justin Lingg-Laham"
+date: 2026-09-12
+date-format: "DD.MM.YYYY"
+format: 
+  revealjs:
+    footer: "Excursion Ireland"
+    theme: default
+    transition: slide
+    slide-number: true
+    incremental: false
+    css: styles.css
+    
+resources:
+  - media/animation_map.png
+  - media/route_animation_final.mp4
+    
+---
+
+## 1. Motivation:
+
+```{r}
+#| label: rainfall-ferns
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 12.5
+#| fig-height: 5.7
+#| out-width: "100%"
+#| fig-align: center
+#| fig-alt: "Daily rainfall at Ferns III during May 2024."
+
+library(ggplot2)
+
+rain <- read.csv(
+  "data/dly4715_subset.csv",
+  skip = 9,
+  stringsAsFactors = FALSE
+)
+
+may <- rain[
+  grepl("-may-2024$", tolower(rain$date)) &
+    !is.na(rain$rain),
+]
+
+may$date <- as.Date(
+  sub("-may-", "-05-", tolower(may$date)),
+  format = "%d-%m-%Y"
+)
+
+peak <- may[which.max(may$rain), , drop = FALSE]
+
+may$highlight <- ifelse(
+  may$date == peak$date,
+  "Peak rainfall",
+  "Daily rainfall"
+)
+
+x_days <- seq(1, 29, by = 4)
+
+ggplot(may, aes(x = date, y = rain)) +
+  geom_col(
+    aes(fill = highlight),
+    width = 0.78
+  ) +
+  geom_label(
+    data = peak,
+    aes(label = sprintf("%.1f mm", rain)),
+    vjust = -0.45,
+    size = 5,
+    fontface = "bold",
+    color = "#9F3638",
+    fill = "white",
+    linewidth = 0,
+    label.padding = grid::unit(0.18, "lines")
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Daily rainfall" = "#4E86B4",
+      "Peak rainfall" = "#CF5B5D"
+    )
+  ) +
+  scale_x_date(
+    breaks = as.Date(
+      sprintf("2024-05-%02d", x_days)
+    ),
+    labels = sprintf("%02d May", x_days),
+    expand = expansion(mult = c(0.01, 0.02))
+  ) +
+  scale_y_continuous(
+    breaks = seq(0, 30, 10),
+    limits = c(0, 35),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  labs(
+    subtitle = "Daily precipitation at Ferns III · May 2024",
+    x = NULL,
+    y = "Rainfall (mm)"
+  ) +
+  guides(fill = "none") +
+  coord_cartesian(clip = "off") +
+  theme_minimal(base_size = 20) +
+  theme(
+    plot.subtitle = element_text(
+      size = 21,
+      face = "bold",
+      color = "#27313A",
+      margin = margin(b = 18)
+    ),
+    axis.title.y = element_text(
+      size = 17,
+      color = "#38434C",
+      margin = margin(r = 12)
+    ),
+    axis.text.x = element_text(
+      size = 14,
+      angle = 35,
+      hjust = 1,
+      color = "#53606A"
+    ),
+    axis.text.y = element_text(
+      size = 14,
+      color = "#53606A"
+    ),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_line(
+      color = "#E3E8EC",
+      linewidth = 0.7
+    ),
+    plot.background = element_rect(
+      fill = "transparent",
+      color = NA
+    ),
+    panel.background = element_rect(
+      fill = "transparent",
+      color = NA
+    ),
+    plot.margin = margin(8, 20, 8, 10)
+  )
+```
+
+<div style="font-size: 16px; color: #68737d; margin-top: -15px;">
+Fig. 1: Data from: https://www.met.ie (own depiction)
+</div>
+
+<div class="fragment" style="font-size: 24px; line-height: 1.35; margin-top: 20px;">
+"Some 20 mm fell in 20 minutes and the remaining 10 mm over the following
+40 minutes. In the following 12 hours, the flood event took with it
+0.61 kg/ha of phosphorus, close to twice what would normally leave in
+a year (Teagasc Agriculture and Food Development Authority, 2024)."
+</div>
+
+## 1.2 What is a Pulse event? {.smaller}
+
+Definition: “Pulse Events [are] defined as abrupt changes in ecological parameters, are often present in ecosystems and include a wide array of phenomena, such as heat waves, marine upwelling, mass reproductive and mortality events, and biomass‐altering disturbances”
+
+<div style="font-size: 16px; color: #68737d; margin-top: -15px;">
+Jentsch and White (2019), Yang et al. (2008)
+</div>
+
+## 
+![](data/derived_data/map/hydroBASINS_map.png){fig-align="center" fig-cap="center" width="80%"}
+<div style="font-size: 16px; color: #68737d; margin-top: -15px;">
+Fig. 2: Map of west ireland Catchments (own depiction).
+</div>
+
+## 1.3 Region of Interest {.route-slide} 
+
+<div class="route-composition" style="width: 80%; margin: 0 auto;">
+
+  <img
+    class="route-layout"
+    src="media/animation_map.png"
+    alt="Map layout of Ireland"
+  >
+
+  <video
+    class="route-video"
+    data-autoplay
+    muted
+    playsinline
+    preload="auto"
+  >
+    <source
+      src="media/route_animation_final.mp4"
+      type="video/mp4"
+    >
+  </video>
+
+</div>
+<div style="font-size: 16px; color: #68737d;">
+Fig. 3: Map of our Route through Ireland (own depiction).
+</div>
+
+## 2. Methods: PPSI framework
+
+
+$$
+{\mathrm{PPSI}}=
+\sqrt[3]{
+\color{#006837}{S}
+\cdot
+\color{#72368d}{M}
+\cdot
+\color{#45bcbb}{C}
+}
+$$
+
+<p style="text-align: center; color: #617086; font-size: 22px; margin-top: -5px; margin-bottom: 25px;">
+Equal-weighted geometric mean of three normalized components
+</p>
+
+::: {.r-hstack style="justify-content: space-between; align-items: flex-start; text-align: center; gap: 35px;"}
+
+::: {style="width: 30%;"}
+<span style="color: #006837; font-size: 52px; font-weight: 700;">S</span>
+
+**Source presence**
+
+<span style="color: #617086; font-size: 21px;">
+Where are agricultural sources present?
+</span>
+:::
+
+::: {style="width: 30%;"}
+<span style="color: #72368d; font-size: 52px; font-weight: 700;">M</span>
+
+**Mobilization potential**
+
+<span style="color: #617086; font-size: 21px;">
+Can rainfall mobilize the material?
+</span>
+:::
+
+::: {style="width: 30%;"}
+<span style="color: #45bcbb; font-size: 52px; font-weight: 700;">C</span>
+
+**Hydrological connectivity**
+
+<span style="color: #617086; font-size: 21px;">
+Can it reach the stream network?
+</span>
+:::
+
+:::
+
+## 2.1 PPSI workflow {.ppsi-workflow}
+
+<style>
+.reveal .slides section.ppsi-workflow h2 {
+  font-size: 1.45em !important;
+  margin-top: 0 !important;
+  margin-bottom: 0.08em !important;
+}
+
+.reveal .slides section.ppsi-workflow .cell {
+  margin: 0 !important;
+}
+
+.reveal .slides section.ppsi-workflow .mermaid svg {
+  width: auto !important;
+  max-width: 100% !important;
+  height: 65vh !important;
+  max-height: 65vh !important;
+}
+
+/* Softer nodes and connectors */
+.reveal .slides section.ppsi-workflow .mermaid .node rect {
+  rx: 13px !important;
+  ry: 13px !important;
+  filter: drop-shadow(0 2px 2px rgba(25, 45, 60, 0.12));
+}
+
+.reveal .slides section.ppsi-workflow .mermaid .flowchart-link {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Legend */
+.workflow-legend {
+  position: absolute;
+  left: 50%;
+  bottom: 1.25em;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.15em;
+  padding: 0.38em 0.8em;
+  background: rgba(248, 250, 252, 0.96);
+  border: 1px solid #dce3e8;
+  border-radius: 999px;
+  font-size: 0.34em;
+  color: #44515c;
+  white-space: nowrap;
+}
+
+.workflow-legend .legend-key {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  white-space: nowrap;
+}
+
+.workflow-legend .legend-key::before {
+  content: "";
+  width: 0.82em;
+  height: 0.82em;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 0.82em;
+}
+
+.workflow-legend .base-key::before {
+  background: #3d6a84;
+}
+
+.workflow-legend .derived-key::before {
+  background: #2d8485;
+}
+
+.workflow-legend .component-key::before {
+  background: #c9792e;
+}
+
+.workflow-legend .output-key::before {
+  background: #795171;
+}
+</style>
+
+```{mermaid}
+%%| fig-align: center
+
+%%{init: {
+  "flowchart": {
+    "nodeSpacing": 34,
+    "rankSpacing": 28,
+    "curve": "basis",
+    "padding": 14
+  },
+  "themeVariables": {
+    "fontSize": "16px",
+    "fontFamily": "Arial, sans-serif",
+    "lineColor": "#6f8491"
+  }
+}}%%
+
+flowchart TB
+
+    A("Cropland + cultivated<br/>grassland")
+    B("Rainfall intensity +<br/>heavyrain frequency")
+    C("Soil texture")
+    D("Slope + stream proximity<br/>+ low HAND")
+
+    E("Rainfall pulse")
+    F("Runoff potential")
+
+    S("1 – Source presence")
+    M("2 – Mobilization")
+    K("3 – Connectivity")
+
+    P("Continuous PPSI")
+    H("PPSI priority maps")
+
+    A --> S
+    B --> E
+    C --> F
+    D --> K
+
+    E --> M
+    F --> M
+
+    S --> P
+    M --> P
+    K --> P
+
+    P --> H
+
+    classDef base fill:#3d6a84,stroke:#31566b,stroke-width:1.2px,color:#ffffff;
+    classDef derived fill:#2d8485,stroke:#22696a,stroke-width:1.2px,color:#ffffff;
+    classDef component fill:#c9792e,stroke:#a66022,stroke-width:1.3px,color:#ffffff,font-weight:bold;
+    classDef output fill:#795171,stroke:#60405a,stroke-width:1.3px,color:#ffffff,font-weight:bold;
+
+    class A,B,C,D base;
+    class E,F derived;
+    class S,M,K component;
+    class P,H output;
+
+    linkStyle default stroke:#6f8491,stroke-width:1.35px;
+```
+
+::: {.workflow-legend}
+[Input data]{.legend-key .base-key}
+[Derived layers]{.legend-key .derived-key}
+[PPSI components]{.legend-key .component-key}
+[Output layers]{.legend-key .output-key}
+:::
+## 2.2 PPSI Building
+
+::: {.r-stack}
+$$
+\mathrm{PPSI} = \sqrt[3]{\mathbf{S} \cdot M \cdot C}
+$$
+
+::: {.fragment .fade-in fragment-index="1"}
+$$
+\mathrm{PPSI} =
+\sqrt[3]{\color{#e12300}{\mathbf{S}} \cdot M \cdot C}
+$$
+:::
+
+:::
+
+- <span class="fragment highlight-red" data-fragment-index="1">**S: Source Presence**</span>
+
+- **M**: Mobilization potential
+
+- **C**: Hydrological connectivity
+
+## 2.2.1 Agricultural Source Presence [S] {transition="fade" transition-speed="slow"}
+
+::: {.r-stretch .r-vstack}
+$$
+S = \max(\mathit{cropland\_fraction},\mathit{grassland\_fraction})
+$$
+:::
+::: {.footer}
+$\mathrm{PPSI} = \sqrt[3]{\color{#e12300}{\mathbf{S}} \cdot M \cdot C}$
+:::
+
+## 2.2.1 Agricultural Source Presence [S] {auto-animate=true auto-animate-easing="ease-in-out"}
+
+::: {.r-hstack style="margin-top: 0; gap: 12px;"}
+::: {.map-input .fragment .fade-in data-fragment-index="1" style="width: 445px; flex: 0 0 445px; text-align: center;"}
+![](media/cropland_fraction.png){data-id="cropland-map" width="445"}
+<div class="map-label">Fig. 4: Cropland fraction</div>
+:::
+<div class="map-operator fragment fade-in" data-fragment-index="3">
+  <div>max()</div>
+  <small>pixelwise</small>
+</div>
+::: {.map-input .fragment .fade-in data-fragment-index="2" style="width: 445px; flex: 0 0 445px; text-align: center;"}
+![](media/grassland_fraction.png){data-id="grassland-map" width="445"}
+<div class="map-label">Fig. 5: Cultivated grassland fraction</div>
+:::
+:::
+::: {.source-info-row}
+::: {.source-info .fragment .fade-in data-fragment-index="1"}
+**Resolution:** 10 m  
+**Data:** ESA WorldCover v200  
+**Processing:** Fraction per 500 m grid cell
+:::
+::: {.source-info-spacer}
+:::
+::: {.source-info .fragment .fade-in data-fragment-index="2"}
+**Resolution:** 30 m  
+**Data:** Global Pasture Watch  
+**Processing:** Fraction per 500 m grid cell
+:::
+:::
+::: {.footer}
+$\mathrm{PPSI} = \sqrt[3]{\color{#e12300}{\mathbf{S}} \cdot M \cdot C}$
+:::
+
+## 2.2.1 Agricultural Source Presence [S] {auto-animate=true auto-animate-easing="ease-in-out"}
+
+::: {.r-stack style="margin-top: 0;"}
+![](media/cropland_fraction.png){data-id="cropland-map" width="445" style="opacity: 0.12;"}
+
+![](media/grassland_fraction.png){data-id="grassland-map" width="445" style="opacity: 0.12;"}
+
+::: {.map-output auto-animate-delay="0.7" style="width: 760px; text-align: center;"}
+![](media/source_presence.png){width="760"}
+<div class="map-label">Fig. 6: Agricultural source presence</div>
+:::
+:::
+::: {.footer}
+$\mathrm{PPSI} = \sqrt[3]{\color{#e12300}{\mathbf{S}} \cdot M \cdot C}$
+:::
+
+## 2.2 PPSI Building
+
+::: {.r-stack}
+::: {.fragment .fade-out fragment-index="1"}
+$$
+\mathrm{PPSI} = \sqrt[3]{\mathbf{S} \cdot M \cdot C}
+$$
+:::
+
+::: {.fragment .fade-in fragment-index="1"}
+$$
+\mathrm{PPSI} = \sqrt[3]{{\mathbf{S}} \cdot \color{#e12300}M \cdot C}
+$$
+:::
+:::
+
+- **S**: Source Presence
+- <span class="fragment highlight-red" data-fragment-index="1">**M: Mobilization potential**</span>
+- **C**: Hydrological connectivity
+
+## 2.2.2 Mobilization [M] {transition="fade" transition-speed="slow"}
+
+::: {.r-vstack style="width: 100%; gap: 0;"}
+$$M = R^{0.60} \cdot B^{0.40}$$
+
+::: {.fragment .fade-in data-fragment-index="1" style="width: 100%;"}
+$$\swarrow \hspace{12em} \searrow$$
+
+::: {.r-hstack style="width: 100%; justify-content: space-between; margin-top: -15px;"}
+::: {data-id="rainfall-formula" style="width: 42%; text-align: center;" .fragment .highlight-red}
+$$R = \sqrt{\mathit{Intensity} \cdot \mathit{Frequency}}$$
+<div style="font-size: 18px; color: #617086;">Rainfall pulse</div>
+:::
+::: {data-id="soil-formula" style="width: 42%; text-align: center;"}
+$$B = f(\mathit{soil\ texture\ classes})$$
+<div style="font-size: 18px; color: #617086;">Soil runoff derived from texture class</div>
+:::
+:::
+:::
+:::
+
+::: {.footer}
+$\mathrm{PPSI} = \sqrt[3]{\mathbf{S} \cdot \color{#e12300}{\mathbf{M}} \cdot C}$
+:::
+
+## 2.2.2 Mobilization: Rainfall pulse [R] {auto-animate=true auto-animate-easing="ease-in-out"}
+
+::: {.r-hstack style="margin-top: 0; gap: 12px;"}
+::: {.map-input .fragment .fade-in data-fragment-index="1" style="width: 445px; flex: 0 0 445px; text-align: center;"}
+![](media/rain_intensity.png){data-id="intensity-map" width="445"}
+<div class="map-label">Fig. 7: Rainfall intensity [I]</div>
+:::
+<div class="map-operator fragment fade-in" data-fragment-index="3">
+  <div>√(×)</div>
+  <small>pixelwise</small>
+</div>
+::: {.map-input .fragment .fade-in data-fragment-index="2" style="width: 445px; flex: 0 0 445px; text-align: center;"}
+![](media/rain_frequency.png){data-id="frequency-map" width="445"}
+<div class="map-label">Fig. 8: Heavy rainfall frequency [F]</div>
+:::
+:::
+
+::: {.source-info-row}
+
+::: {.source-info .fragment .fade-in data-fragment-index="1"}
+**Resolution:** 5.57 km → 500 m grid  
+**Data:** CHIRPS v3 Daily, 2015–2025  
+**Processing:** Mean annual RX1day, normalized to 0–1
+:::
+
+::: {.source-info-spacer}
+:::
+
+::: {.source-info .fragment .fade-in data-fragment-index="2"}
+**Resolution:** 5.57 km → 500 m grid  
+**Data:** CHIRPS v3 Daily, 2015–2025  
+**Processing:** Fraction of days ≥ 20 mm, normalized to 0–1
+:::
+
+:::
+
+::: {.footer}
+$\mathrm{PPSI} = \sqrt[3]{\mathbf{S} \cdot \color{#e12300}{\mathbf{M}} \cdot C}$
+:::
+
+## 2.2.2 Mobilization: Rainfall pulse [R] {auto-animate=true auto-animate-easing="ease-in-out"}
+
+::: {.r-stack style="margin-top: 0;"}
+![](media/rain_intensity.png){data-id="intensity-map" width="445" style="opacity: 0.12;"}
+
+![](media/rain_frequency.png){data-id="frequency-map" width="445" style="opacity: 0.12;"}
+
+::: {.map-output auto-animate-delay="0.7" style="width: 760px; text-align: center;"}
+![](media/rainfall_pulse.png){width="760"}
+<div class="map-label">Fig. 9: Rainfall pulse [R]</div>
+:::
+:::
+
+::: {.footer}
+$\mathrm{PPSI} = \sqrt[3]{\mathbf{S} \cdot \color{#e12300}{\mathbf{M}} \cdot C}$
+:::
+
+## 2.2.2 Mobilization: Soil runoff [B] {transition="fade" transition-speed="slow"}
+
+::: {.r-vstack style="width: 100%; gap: 0;"}
+$$B = f(\mathit{soil\ texture\ classes})$$
+
+::: {.r-stack style="height: 500px; margin-top: -20px;"}
+::: {.map-input .fragment .fade-in-then-out data-fragment-index="1" style="width: 550px; text-align: center;"}
+![](media/soil_texture_class.png){width="550"}
+<div class="map-label">Fig. 10: Soil texture classes</div>
+:::
+::: {.map-output .fragment .fade-in data-fragment-index="2" style="width: 550px; text-align: center;"}
+![](media/soil_runoff.png){width="550"}
+<div class="map-label">Fig. 11: Soil runoff factor [B]</div>
+:::
+:::
+:::
+
+
+::: {.footer}
+$\mathrm{PPSI} = \sqrt[3]{\mathbf{S} \cdot \color{#e12300}{\mathbf{M}} \cdot C}$
+:::
+
+## 2.2.2 Mobilization [M] {transition="fade" transition-speed="slow"}
+
+::: {.r-vstack style="width: 100%; gap: 0;"}
+$$M = R^{0.60} \cdot B^{0.40}$$
+$$\swarrow \hspace{12em} \searrow$$
+
+::: {.r-hstack style="width: 100%; justify-content: space-between; margin-top: -15px;"}
+::: {style="width: 42%; text-align: center;"}
+$$R = \sqrt{\mathit{Intensity} \cdot \mathit{Frequency}}$$
+<div style="font-size: 18px; color: #617086;">Rainfall pulse</div>
+:::
+::: {style="width: 42%; text-align: center;"}
+$$B = f(\mathit{soil\ texture\ classes})$$
+<div style="font-size: 18px; color: #617086;">Soil runoff derived from texture class</div>
+:::
+:::
+:::
+
+::: {.footer}
+$\mathrm{PPSI} = \sqrt[3]{\mathbf{S} \cdot \color{#e12300}{\mathbf{M}} \cdot C}$
+:::
+
+## 2.2.2 Mobilization [M] {auto-animate=true auto-animate-easing="ease-in-out"}
+
+::: {.r-hstack style="margin-top: 0; gap: 12px;"}
+::: {.map-input style="width: 445px; flex: 0 0 445px; text-align: center;"}
+![](media/rainfall_pulse.png){data-id="rainfall-pulse-map" width="445"}
+<div class="map-label">Fig. 9: Rainfall pulse [R]</div>
+:::
+<div class="map-operator">
+  <div>×</div>
+  <small>weighted</small>
+</div>
+::: {.map-input style="width: 445px; flex: 0 0 445px; text-align: center;"}
+![](media/soil_runoff.png){data-id="soil-runoff-map" width="445"}
+<div class="map-label">Fig. 11: Soil runoff factor [B]</div>
+:::
+:::
+
+::: {.footer}
+$\mathrm{PPSI} = \sqrt[3]{\mathbf{S} \cdot \color{#e12300}{\mathbf{M}} \cdot C}$
+:::
+
+## 2.2.2 Mobilization [M] {auto-animate=true auto-animate-easing="ease-in-out"}
+
+::: {.r-stack style="margin-top: 0;"}
+![](media/rainfall_pulse.png){data-id="rainfall-pulse-map" width="445" style="opacity: 0.12;"}
+
+![](media/soil_runoff.png){data-id="soil-runoff-map" width="445" style="opacity: 0.12;"}
+
+::: {.map-output auto-animate-delay="0.7" style="width: 760px; text-align: center;"}
+![](media/mobilzation.png){width="760"}
+<div class="map-label">Fig. 12: Mobilization potential [M]</div>
+:::
+:::
+
+::: {.footer}
+$\mathrm{PPSI} = \sqrt[3]{\mathbf{S} \cdot \color{#e12300}{\mathbf{M}} \cdot C}$
+:::
+
+## 2.2 PPSI Building
+
+::: {.r-stack}
+::: {.fragment .fade-out fragment-index="1"}
+$$
+\mathrm{PPSI} = \sqrt[3]{\mathbf{S} \cdot M \cdot C}
+$$
+:::
+
+::: {.fragment .fade-in fragment-index="1"}
+$$
+\mathrm{PPSI} = \sqrt[3]{{\mathbf{S}} \cdot M \cdot \color{#e12300}C}
+$$
+:::
+:::
+
+- **S**: Source Presence
+- **M**: Mobilization potential
+-  <span class="fragment highlight-red" data-fragment-index="1">**C: Hydrological connectivity**</span>
+
+## 2.2.3 Hydrological Connectivity [C] {transition="fade" transition-speed="slow"}
+
+::: {.r-stretch .r-vstack}
+
+$$
+C =
+0.15F_{\mathrm{slope}}
++ 0.45F_{\mathrm{stream}}
++ 0.40F_{\mathrm{HAND}}
+$$
+
+<div style="font-size: 18px; color: #617086; margin-top: 15px;">
+Weighted combination of normalized connectivity factors
+</div>
+
+:::
+
+::: {.footer}
+$\mathrm{PPSI} =
+\sqrt[3]{\mathbf{S} \cdot M \cdot
+\color{#e12300}{\mathbf{C}}}$
+:::
+
+
+## 2.2.3 Connectivity components {transition="fade" transition-speed="slow"}
+
+$$
+C =
+0.15F_{\mathrm{slope}}
++ 0.45F_{\mathrm{stream}}
++ 0.40F_{\mathrm{HAND}}
+$$
+
+::: {.r-stack style="height: 500px; margin-top: -25px;"}
+
+::: {.map-input .fragment .fade-in-then-out
+      data-fragment-index="1"
+      style="width: 650px; text-align: center;"}
+
+![](media/slope.png){width="650"}
+
+<div class="map-label">Fig. 13: Slope factor (15%)</div>
+
+:::
+
+::: {.map-input .fragment .fade-in-then-out
+      data-fragment-index="2"
+      style="width: 650px; text-align: center;"}
+
+![](media/stream_proximity.png){width="650"}
+
+<div class="map-label">Fig. 14: Stream proximity (45%)</div>
+
+:::
+
+::: {.map-input .fragment .fade-in
+      data-fragment-index="3"
+      style="width: 650px; text-align: center;"}
+
+![](media/low_hand.png){width="650"}
+
+<div class="map-label">Fig. 15: Low HAND factor (40%)</div>
+
+:::
+
+:::
+
+::: {.footer}
+$\mathrm{PPSI} =
+\sqrt[3]{\mathbf{S} \cdot M \cdot
+\color{#e12300}{\mathbf{C}}}$
+:::
+
+
+## 2.2.3 Hydrological Connectivity [C] {auto-animate=true auto-animate-easing="ease-in-out" transition="fade"}
+
+::: {.r-hstack style="margin-top: 10px; gap: 8px;"}
+
+::: {.map-input style="width: 300px; flex: 0 0 300px; text-align: center;"}
+
+![](media/slope.png){
+  data-id="slope-map"
+  width="300"
+}
+
+<div class="map-label" style="font-size: 18px;">
+Fig. 13: Slope factor (15%)
+</div>
+
+:::
+
+<div class="map-operator" style="width: 42px; flex: 0 0 42px;">
+  <div>+</div>
+</div>
+
+::: {.map-input style="width: 300px; flex: 0 0 300px; text-align: center;"}
+
+![](media/stream_proximity.png){
+  data-id="stream-map"
+  width="300"
+}
+
+<div class="map-label" style="font-size: 18px;">
+Fig. 14: Stream proximity (45%)
+</div>
+
+:::
+
+<div class="map-operator" style="width: 42px; flex: 0 0 42px;">
+  <div>+</div>
+</div>
+
+::: {.map-input style="width: 300px; flex: 0 0 300px; text-align: center;"}
+
+![](media/low_hand.png){
+  data-id="hand-map"
+  width="300"
+}
+
+<div class="map-label" style="font-size: 18px;">
+Fig. 15: Low HAND factor (40%)
+</div>
+
+:::
+
+:::
+
+::: {.r-hstack style="width: 100%; margin-top: 6px; gap: 8px; align-items: flex-start; justify-content: center; flex-wrap: nowrap;"}
+
+::: {.source-info style="width: 300px; flex: 0 0 300px;"}
+**Resolution:** 92.77 m → 500 m  
+**Data:** MERIT Hydro: elevation  
+**Processing:** Mean elevation → slope (0–15°)
+:::
+
+::: {style="width: 42px; flex: 0 0 42px;"}
+:::
+
+::: {.source-info style="width: 300px; flex: 0 0 300px;"}
+**Resolution:** 92.77 m → 500 m  
+**Data:** MERIT Hydro: upstream area  
+**Processing:** Upstream area >1 km² → proximity (0–2 km)
+:::
+
+::: {style="width: 42px; flex: 0 0 42px;"}
+:::
+
+::: {.source-info style="width: 300px; flex: 0 0 300px;"}
+**Resolution:** 92.77 m → 500 m  
+**Data:** MERIT Hydro: HAND  
+**Processing:** Mean HAND → inverted factor (0–30 m)
+:::
+
+:::
+
+<div style="font-size: 18px; color: #617086; text-align: center; margin-top: 18px;">
+Weighted pixelwise sum
+</div>
+
+::: {.footer}
+$\mathrm{PPSI} =
+\sqrt[3]{\mathbf{S} \cdot M \cdot
+\color{#e12300}{\mathbf{C}}}$
+:::
+
+
+## 2.2.3 Hydrological Connectivity [C] {auto-animate=true auto-animate-easing="ease-in-out"}
+
+::: {.r-stack style="margin-top: 0;"}
+
+![](media/slope.png){
+  data-id="slope-map"
+  width="300"
+  style="opacity: 0.12;"
+}
+
+![](media/stream_proximity.png){
+  data-id="stream-map"
+  width="300"
+  style="opacity: 0.12;"
+}
+
+![](media/low_hand.png){
+  data-id="hand-map"
+  width="300"
+  style="opacity: 0.12;"
+}
+
+::: {.map-output auto-animate-delay="0.7"
+      style="width: 760px; text-align: center;"}
+
+![](media/connectivity.png){width="760"}
+
+<div class="map-label">
+Fig. 16: Hydrological connectivity [C]
+</div>
+
+:::
+
+:::
+
+::: {.footer}
+$\mathrm{PPSI} =
+\sqrt[3]{\mathbf{S} \cdot M \cdot
+\color{#e12300}{\mathbf{C}}}$
+:::
+
+## 2.3 Final PPSI {transition="fade" transition-speed="slow"}
+
+::: {.r-stretch .r-vstack}
+
+$$
+\mathrm{PPSI}
+=
+\sqrt[3]{S \cdot M \cdot C}
+$$
+
+<div style="font-size: 18px; color: #617086; margin-top: 15px;">
+Equal-weighted geometric mean of the three components
+</div>
+
+:::
+
+
+## 3. Results: Final PPSI {auto-animate=true auto-animate-easing="ease-in-out"}
+
+::: {.r-hstack style="margin-top: 10px; gap: 8px;"}
+
+::: {.map-input style="width: 300px; flex: 0 0 300px; text-align: center;"}
+
+![](media/source_presence.png){
+  data-id="ppsi-source-map"
+  width="300"
+}
+
+<div class="map-label" style="font-size: 18px;">
+Fig. 6: Agricultural source presence [S]
+</div>
+
+:::
+
+<div class="map-operator" style="width: 42px; flex: 0 0 42px;">
+  <div>×</div>
+</div>
+
+::: {.map-input style="width: 300px; flex: 0 0 300px; text-align: center;"}
+
+![](media/mobilzation.png){
+  data-id="ppsi-mobilization-map"
+  width="300"
+}
+
+<div class="map-label" style="font-size: 18px;">
+Fig. 12: Mobilization potential [M]
+</div>
+
+:::
+
+<div class="map-operator" style="width: 42px; flex: 0 0 42px;">
+  <div>×</div>
+</div>
+
+::: {.map-input style="width: 300px; flex: 0 0 300px; text-align: center;"}
+
+![](media/connectivity.png){
+  data-id="ppsi-connectivity-map"
+  width="300"
+}
+
+<div class="map-label" style="font-size: 18px;">
+Fig. 16: Hydrological connectivity [C]
+</div>
+
+:::
+
+:::
+
+<div style="font-size: 18px; color: #617086; text-align: center; margin-top: 18px;">
+Pixelwise geometric mean
+</div>
+
+
+## 3. Results: Final PPSI {auto-animate=true auto-animate-easing="ease-in-out"}
+
+::: {.r-stack style="margin-top: 0;"}
+
+![](media/source_presence.png){
+  data-id="ppsi-source-map"
+  width="300"
+  style="opacity: 0.12;"
+}
+
+![](media/mobilzation.png){
+  data-id="ppsi-mobilization-map"
+  width="300"
+  style="opacity: 0.12;"
+}
+
+![](media/connectivity.png){
+  data-id="ppsi-connectivity-map"
+  width="300"
+  style="opacity: 0.12;"
+}
+
+::: {.map-output auto-animate-delay="0.7"
+      style="width: 760px; text-align: center;"}
+
+![](media/ppsi_continious.png){width="760"}
+
+<div class="map-label">
+Fig. 17: Continuous Pulse Pollution Susceptibility Index
+</div>
+
+:::
+
+:::
+
+## 3.2 Results: PPSI percentiles
+
+::: {.r-hstack style="width: 1100px; margin: -20px auto 0; gap: 20px;"}
+
+::: {.map-input style="width: 500px; flex: 0 0 500px; text-align: center;"}
+
+![](media/ppsi_percentile.png){width="500"}
+
+<div class="map-label">Fig. 18: PPSI priority percentiles</div>
+
+:::
+
+::: {.map-input style="width: 500px; flex: 0 0 500px; text-align: center;"}
+
+![](media/ppsi_prio_catchments.png){width="500"}
+
+<div class="map-label">Fig. 19: PPSI priority catchments</div>
+
+:::
+
+:::
+
+<style>
+.reveal .slides section .fragment.blur-step {
+  opacity: 1 !important;
+  visibility: visible !important;
+  filter: blur(12px);
+  transition: filter 0.8s ease;
+}
+
+.reveal .slides section .fragment.blur-step.visible {
+  filter: blur(0);
+}
+</style>
+
+## 3.3 PPSI: Sensitivity Check
+
+<p class="fragment fade-out"
+   data-fragment-index="1"
+   style="text-align: center; color: #002060; font-size: 28px; margin-top: -8px; margin-bottom: 10px;">
+Do alternative model assumptions change catchment priorities?
+</p>
+
+::: {.fragment .fade-in data-fragment-index="1" style="text-align: center;"}
+![](data/derived_data/v4/presentation_outputs/06_sensitivity_analysis_compact.png){width="1150"}
+<div class="map-label">Fig. 20: Sensitivity of catchment rankings to alternative model assumptions</div>
+:::
+
+:::: {.fragment .fade-in data-fragment-index="1" style="text-align: center; color: #002060; font-size: 30px; font-weight: 700; margin-top: 4px;"}
+
+::: {.fragment .blur-step data-fragment-index="2"}
+**Key message:** Catchment priorities remain stable across model variants
+:::
+
+::::
+
+## 4. Limitations
+
+::: {.r-hstack style="width: 1100px; margin: -20px auto 0; gap: 20px;"}
+
+::: {.map-input style="width: 600px; flex: 0 0 600px; text-align: center;"}
+
+![](media/cropland_fraction.png){width="600"}
+
+<div class="map-label">Fig. 4: Cropland fraction</div>
+
+:::
+
+::: {.map-input style="width: 600px; flex: 0 0 600px; text-align: center;"}
+
+![](media/grassland_fraction.png){width="600"}
+
+<div class="map-label">Fig. 5: Cultivated grassland fraction</div>
+
+:::
+
+:::
+
+## 4. Limitations
+
+::: {.map-input style="width: 800px; flex: 0 0 800px; text-align: center;"}
+
+![](media/ppsi_continious.png){width="700"}
+
+<div class="map-label">Fig. 17: Continuous PPSI per 500 m grid cell</div>
+
+:::
+
+## 5. Take-home messages
+
+:::{.fragment .fade-in}
+- **Heavy rainfall does not produce the same pollution response everywhere.**
+:::
+
+:::{.fragment .fade-in}
+- **The PPSI consistently identifies priority catchments for monitoring after heavy rainfall. Event-based field measurements remain necessary to confirm actual pollution.**
+:::
+
+## Questions? 
+
+## Discussion Question:
+
+Can a **Index** like the PPSI be **useful** in the context of monitoring, or is it unnecessary?
