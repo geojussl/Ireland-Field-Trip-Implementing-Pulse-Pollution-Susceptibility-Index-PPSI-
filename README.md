@@ -2,12 +2,12 @@
 
 This Project develops a workflow for mapping the relative susceptibility of western Irish catchments to agricultural pollution pulses using Google Earth Engine, R and QGIS.
 
-We developed a 500-m Pulse-Pollution Susceptibility Index (PPSI) that combines agricultural source presence, rainfall- and soil-controlled mobilization potential, and hydrological connectivity. The resulting maps identify locations where these three conditions coincide and where pollution pulses following heavy-rainfall events may therefore be more likely. The Idea for the Index is based on Milevski et al. 2025 approach of creating a Flash Flood Potential Index (FFPI). 
+We implemented a Pulse-Pollution Susceptibility Index (PPSI) that combines agricultural source presence, rainfall- and soil-controlled mobilization potential, and hydrological connectivity (500 m). The resulting maps identify locations where these three conditions coincide and where pollution pulses following heavy-rainfall events may therefore be more likely. The Idea for the Index is based on Milevski et al. 2025 approach of creating a Flash Flood Potential Index (FFPI). 
 The PPSI represents relative spatial susceptibility. It does not measure pollutant concentrations and does not forecast the timing of individual pollution events.
 
 This study is part of the Course: **MNF-Geogr-304: Große Exkursion UGM - Irland (EX) (060814)** SoSe 2026
 
-**Authors:** Justin Lingg-Laham and Jonah van den Bos
+**Author:** Justin Lingg-Laham 
 
 ## Interactive presentation
 
